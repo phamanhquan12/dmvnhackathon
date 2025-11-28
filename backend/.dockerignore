@@ -1,0 +1,50 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv
+venv
+ENV
+env
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Data directories (will be mounted as volumes)
+data/
+uploads/
+
+# Notebooks
+notebooks/
+*.ipynb
+
+# Environment files (passed via docker-compose)
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+
+# Testing
+.pytest_cache
+.coverage
+htmlcov/
+
+# Build artifacts
+*.egg-info/
+dist/
+build/
+
+# Temp files
+temp/
+*.tmp

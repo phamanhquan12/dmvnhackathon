@@ -11,8 +11,8 @@ import os
 sys.path.append(os.getcwd())
 from app.core.config import settings
 from app.core.database import Base
-from app.models import theory
-from app.models import chunk, document
+from app.models import session
+from app.models import document, chunk, user
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config

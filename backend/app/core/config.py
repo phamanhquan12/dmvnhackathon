@@ -1,8 +1,10 @@
 import os 
 from pydantic_settings import BaseSettings
 from dotenv import load_dotenv
+from pathlib import Path
 load_dotenv()
-
+env_path = Path(__file__).resolve().parent.parent.parent / ".env"
+load_dotenv(dotenv_path=env_path)
 class Settings(BaseSettings):
     PROJECT_NAME: str = "Denso Mind Backend"
     BACKEND_CORS_ORIGINS: list = ["*"]

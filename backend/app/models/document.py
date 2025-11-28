@@ -1,11 +1,11 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Float, JSON
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Float, JSON, Enum
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 from sqlalchemy.sql import func
 from pgvector.sqlalchemy import Vector  
 from app.core.database import Base
-from enum import Enum
+import enum
 
-class FileTypeEnum(Enum):
+class FileTypeEnum(enum.Enum):
     PDF = "PDF"
     VIDEO = "VIDEO"
     IMAGE = "IMAGE"
@@ -13,10 +13,13 @@ class FileTypeEnum(Enum):
 class Document(Base):
     __tablename__ = "documents"
 
-    id = Column(Integer, primary_key=True, index=True)
-    title = Column(String, nullable=False)
-    file_type = mapped_column(Enum(FileTypeEnum))  # 'pdf', 'video'
-    file_path = Column(String)  
-    uploaded_at = Column(DateTime(timezone=True), server_default=func.now())
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    title = Column(String, nullable=False)           # doc_tittle
+    file_type = Column(String)                       # PDF / VIDEO
+    file_path = Column(String)                       # Đường dẫn file vật lý
+    num_pages = Column(Integer, default=0)           # num_page / duration (seconds)
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+    # Quan hệ 1-nhiều với Chunk
     chunks = relationship("DocumentChunk", back_populates="document", cascade="all, delete-orphan")
