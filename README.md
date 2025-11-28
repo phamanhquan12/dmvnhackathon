@@ -163,7 +163,7 @@ backend/
 | `POSTGRES_PASSWORD` | PostgreSQL password | - |
 | `POSTGRES_DB` | Database name | - |
 | `POSTGRES_HOST` | Database host | `localhost` |
-| `POSTGRES_PORT` | Database port | `5432` |
+| `POSTGRES_PORT` | Database port | `5432/5433` |
 | `API_KEY` | Google Gemini API key | - |
 
 ## 🗄️ Database Schema
