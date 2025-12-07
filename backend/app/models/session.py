@@ -27,21 +27,71 @@ class TheorySession(Base):
 
 
 class PracticalSession(Base):
+    """
+    Practical assessment session - tracks a complete SOP video evaluation
+    Enhanced for Stage B video-based SOP assessment
+    """
     __tablename__ = "practical_sessions"
 
     id = Column(UUID(as_uuid=True), primary_key=True, index=True, default=lambda : str(uuid4()))
+    session_code = Column(String(50), unique=True, nullable=True, index=True)  # Human-readable session ID
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     
-    # score = Column(Float, nullable=True) # Điểm thao tác (nếu có)
-    status = Column(String)              # "PASSED" / "FAILED" / "IN_PROGRESS"
+    # SOP Process info
+    process_name = Column(String(255), nullable=True)
+    sop_rules_json = Column(JSON, nullable=True)  # Store the rules used for this assessment
     
-    # Feedback: Lưu chuỗi JSON hoặc Text mô tả lỗi
-    # VD: "Sai bước 2 (Dùng sai kìm). Ôn lại mục An toàn điện."
-    feedback = Column(Text, nullable=True) 
+    # Assessment results
+    total_steps = Column(Integer, nullable=True, default=0)
+    completed_steps = Column(Integer, nullable=True, default=0)
+    score = Column(Float, nullable=True)  # Điểm thao tác (percentage)
+    status = Column(String)  # "PASSED" / "FAILED" / "IN_PROGRESS" / "PENDING"
+    total_duration = Column(Float, nullable=True)  # Total time in seconds
     
-    # (Tùy chọn) Đường dẫn video quay lại buổi thực hành đó
-    # video_record_path = Column(String, nullable=True)
+    # Video information
+    video_filename = Column(String(500), nullable=True)
+    video_path = Column(Text, nullable=True)
+    
+    # Full report data and feedback
+    report_data = Column(JSON, nullable=True)  # Stores complete step_details from SOPEngine
+    feedback = Column(Text, nullable=True)  # Lỗi hoặc gợi ý cải thiện
 
+    # Timestamps
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
+    # Relationships
     user = relationship("User", back_populates="practical_sessions")
+    step_results = relationship("PracticalStepResult", back_populates="session", cascade="all, delete-orphan")
+
+
+class PracticalStepResult(Base):
+    """
+    Individual step result within a practical assessment
+    """
+    __tablename__ = "practical_step_results"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    session_id = Column(UUID(as_uuid=True), ForeignKey("practical_sessions.id"), nullable=False)
+    
+    # Step identification
+    step_id = Column(String(50), nullable=False)
+    step_index = Column(Integer, nullable=False)
+    description = Column(Text, nullable=True)
+    target_object = Column(String(100), nullable=True)
+    
+    # Step results
+    status = Column(String(50), nullable=False)  # PASSED, FAILED, SKIPPED
+    duration = Column(Float, nullable=True)  # Time spent on this step
+    timestamp = Column(String(20), nullable=True)  # HH:MM:SS format when completed
+    
+    # Detection data (optional - for debugging/review)
+    detection_data = Column(JSON, nullable=True)
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # Relationships
+    session = relationship("PracticalSession", back_populates="step_results")

@@ -2,10 +2,12 @@ import asyncio
 import os
 import re
 import tempfile
+import json
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import UUID
 from difflib import SequenceMatcher
+from pathlib import Path
 
 import streamlit as st
 from sqlalchemy import select
@@ -18,6 +20,13 @@ from app.services.rag.ingestion import IngestionService
 from app.services.rag.chat import ChatService
 from app.services.rag.progress import ProgressService
 from app.services.rag.content_generator import ContentGenerationService, ProgressTrackingService
+
+# Stage B - SOP Video Assessment imports (conditional to avoid import errors if not installed)
+try:
+    from app.services.sop import VisionEngine, SOPEngine, InteractionEngine
+    SOP_AVAILABLE = True
+except ImportError:
+    SOP_AVAILABLE = False
 
 
 def find_best_matching_text(page_content: str, source_chunk: str, answer_text: str) -> List[str]:
@@ -689,6 +698,13 @@ def init_state() -> None:
     
     # Learning progress tracking (based on actual completion)
     st.session_state.setdefault("document_progress", {})
+    
+    # Stage B - Video Assessment state
+    st.session_state.setdefault("sop_rules", None)  # Loaded SOP rules
+    st.session_state.setdefault("assessment_running", False)  # Assessment in progress
+    st.session_state.setdefault("assessment_result", None)  # Final assessment result
+    st.session_state.setdefault("assessment_progress", {})  # Current progress during assessment
+    st.session_state.setdefault("assessment_video_path", None)  # Path to uploaded video
 
 
 def add_event(evt_type: str, message: str) -> None:
@@ -2208,22 +2224,324 @@ def layout() -> None:
                             st.session_state.quiz_result = None
                             st.rerun()
         
-        # Video Assessment Tab (placeholder for video retrieval feature)
+        # Video Assessment Tab - Stage B SOP Video Analysis
         with test_tabs[1]:
-            st.markdown("### Video-Based Assessment")
-            st.caption("Upload a video of your work procedure for AI assessment. (Coming soon)")
+            st.markdown("### 🎥 Video-Based SOP Assessment")
+            st.caption("Upload a video of your work procedure for AI-powered assessment")
             
-            st.warning("⚠️ This feature is under development. Video content retrieval and assessment will be available in a future update.")
-            
-            uploaded_assessment_video = st.file_uploader(
-                "Upload assessment video", 
-                type=["mp4", "mov", "avi", "mkv"], 
-                key="assessment_video_uploader"
-            )
-            
-            if uploaded_assessment_video:
-                st.info(f"🎬 **{uploaded_assessment_video.name}** ({uploaded_assessment_video.size / (1024*1024):.1f} MB)")
-                st.button("🎯 Start Assessment", disabled=True, help="Coming soon!")
+            # Check if SOP module is available
+            if not SOP_AVAILABLE:
+                st.error("⚠️ SOP Assessment module is not installed. Required packages: ultralytics, mediapipe, opencv-python")
+                st.code("pip install ultralytics mediapipe opencv-python lapx", language="bash")
+            else:
+                # SOP Rules Section
+                col_rules, col_video = st.columns([1, 2])
+                
+                with col_rules:
+                    st.markdown("#### 📋 SOP Rules")
+                    
+                    # Load default rules or upload custom
+                    rules_source = st.radio(
+                        "Select SOP rules:",
+                        ["Default Rules", "Upload Custom Rules"],
+                        key="sop_rules_source",
+                        horizontal=True
+                    )
+                    
+                    if rules_source == "Default Rules":
+                        default_rules_path = Path("data/sop_rulesv3.json")
+                        if default_rules_path.exists():
+                            try:
+                                with open(default_rules_path, 'r', encoding='utf-8') as f:
+                                    st.session_state.sop_rules = json.load(f)
+                                st.success(f"✅ Loaded: {st.session_state.sop_rules.get('process_name', 'Unknown')}")
+                            except Exception as e:
+                                st.error(f"Failed to load rules: {e}")
+                        else:
+                            st.warning("Default rules file not found at data/sop_rules.json")
+                    else:
+                        uploaded_rules = st.file_uploader(
+                            "Upload SOP rules JSON",
+                            type=["json"],
+                            key="sop_rules_uploader"
+                        )
+                        if uploaded_rules:
+                            try:
+                                st.session_state.sop_rules = json.loads(uploaded_rules.read().decode('utf-8'))
+                                st.success(f"✅ Loaded: {st.session_state.sop_rules.get('process_name', 'Unknown')}")
+                            except Exception as e:
+                                st.error(f"Invalid JSON: {e}")
+                    
+                    # Display loaded rules
+                    if st.session_state.sop_rules:
+                        rules = st.session_state.sop_rules
+                        st.markdown(f"**Process:** {rules.get('process_name', 'Unknown')}")
+                        st.markdown(f"**Steps:** {len(rules.get('steps', []))}")
+                        
+                        with st.expander("📜 View Steps", expanded=False):
+                            for i, step in enumerate(rules.get('steps', [])):
+                                st.markdown(f"**{i+1}. {step.get('step_id', f'Step {i+1}')}**")
+                                st.caption(f"  {step.get('description', 'No description')}")
+                                st.caption(f"  Target: `{step.get('target_object', 'N/A')}`")
+                    
+                    # Activity Log Section (updates during assessment)
+                    st.markdown("---")
+                    st.markdown("#### 📊 Activity Log")
+                    activity_log_placeholder = st.empty()
+                
+                with col_video:
+                    st.markdown("#### 🎬 Video Upload & Assessment")
+                    
+                    uploaded_assessment_video = st.file_uploader(
+                        "Upload assessment video",
+                        type=["mp4", "mov", "avi", "mkv"],
+                        key="assessment_video_uploader"
+                    )
+                    
+                    if uploaded_assessment_video:
+                        video_size_mb = uploaded_assessment_video.size / (1024*1024)
+                        st.info(f"🎬 **{uploaded_assessment_video.name}** ({video_size_mb:.1f} MB)")
+                        
+                        # Model selection
+                        model_col1, model_col2 = st.columns(2)
+                        with model_col1:
+                            yolo_model = st.selectbox(
+                                "YOLO Model",
+                                ["yolov8n.pt", "yolov8s.pt", "yolov8m.pt", "custom"],
+                                help="Select detection model (n=nano, s=small, m=medium)"
+                            )
+                        with model_col2:
+                            confidence = st.slider("Detection Confidence", 0.1, 1.0, 0.5, 0.05)
+                        
+                        # Custom model upload
+                        custom_model_path = None
+                        if yolo_model == "custom":
+                            uploaded_weights = st.file_uploader(
+                                "Upload custom YOLO weights (.pt)",
+                                type=["pt"],
+                                key="custom_weights_uploader"
+                            )
+                            if uploaded_weights:
+                                # Save weights to temp file
+                                with tempfile.NamedTemporaryFile(delete=False, suffix='.pt') as tmp:
+                                    tmp.write(uploaded_weights.getbuffer())
+                                    custom_model_path = tmp.name
+                                st.success(f"✅ Loaded: {uploaded_weights.name}")
+                            else:
+                                st.warning("⚠️ Please upload custom weights file")
+                        
+                        # Assessment controls
+                        if st.session_state.sop_rules:
+                            can_start = yolo_model != "custom" or custom_model_path is not None
+                            if not st.session_state.assessment_running:
+                                if st.button("🎯 Start Assessment", type="primary", use_container_width=True, disabled=not can_start):
+                                    st.session_state.assessment_running = True
+                                    st.session_state.assessment_result = None
+                                    st.session_state.custom_model_path = custom_model_path
+                                    
+                                    # Save video to temp file
+                                    with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as tmp:
+                                        tmp.write(uploaded_assessment_video.getbuffer())
+                                        st.session_state.assessment_video_path = tmp.name
+                                    
+                                    add_event("sop", f"Started SOP assessment: {uploaded_assessment_video.name}")
+                                    st.rerun()
+                            else:
+                                if st.button("⏹️ Stop Assessment", type="secondary", use_container_width=True):
+                                    st.session_state.assessment_running = False
+                                    st.rerun()
+                        else:
+                            st.warning("⚠️ Please load SOP rules first")
+                    
+                    # Run assessment if started
+                    if st.session_state.assessment_running and st.session_state.assessment_video_path:
+                        st.markdown("---")
+                        st.markdown("#### 🔄 Assessment in Progress...")
+                        
+                        video_frame = st.empty()
+                        
+                        try:
+                            # Initialize engines - use custom model if uploaded
+                            model_to_use = yolo_model
+                            if yolo_model == "custom" and st.session_state.get('custom_model_path'):
+                                model_to_use = st.session_state.custom_model_path
+                            
+                            vision_engine = VisionEngine(model_path=model_to_use)
+                            sop_engine = SOPEngine(rules_data=st.session_state.sop_rules)
+                            interaction_engine = InteractionEngine()
+                            
+                            # Process video using generator for smooth processing
+                            import cv2
+                            frame_count = 0
+                            last_ui_update = 0
+                            activity_logs = []  # Store activity log entries
+                            
+                            # Get current target object for filtering
+                            current_target_label = sop_engine.steps[sop_engine.current_step_index]['target_object']
+                            
+                            for frame, detected_objects, detected_hands in vision_engine.process_stream(st.session_state.assessment_video_path):
+                                if not st.session_state.assessment_running:
+                                    break
+                                    
+                                frame_count += 1
+                                
+                                # Update target label when step changes
+                                if not sop_engine.is_completed:
+                                    current_target_label = sop_engine.steps[sop_engine.current_step_index]['target_object']
+                                
+                                # Filter objects to only relevant ones for current step
+                                relevant_objects = [obj for obj in detected_objects if obj['label'] == current_target_label]
+                                
+                                # Check interactions between hands and relevant objects
+                                interactions = interaction_engine.process(relevant_objects, detected_hands)
+                                
+                                # Update SOP state
+                                sop_status = sop_engine.update(interactions)
+                                
+                                # Update UI less frequently (every 15 frames) for performance
+                                if frame_count - last_ui_update >= 15:
+                                    last_ui_update = frame_count
+                                    
+                                    # Update activity log on the left column
+                                    with activity_log_placeholder.container():
+                                        # Current status
+                                        st.markdown(f"**Frame:** {frame_count}")
+                                        st.markdown(f"**Step {sop_status['step_index']+1}/{sop_status['total_steps']}**")
+                                        st.markdown(f"📌 **Current:** {sop_status.get('description', 'N/A')}")
+                                        st.markdown(f"🎯 **Target:** `{current_target_label}`")
+                                        st.markdown(f"📍 **State:** {sop_status.get('state', 'WAITING')}")
+                                        st.markdown(f"📝 **Status:** {sop_status.get('status', 'Unknown')}")
+                                        
+                                        # Progress bar
+                                        if sop_status.get('timer_ratio', 0) > 0:
+                                            st.progress(sop_status['timer_ratio'])
+                                        
+                                        # Detection info
+                                        st.caption(f"🖐️ Hands: {len(detected_hands)} | 📦 Objects: {len(detected_objects)} | 🤝 Interactions: {len(interactions)}")
+                                        
+                                        # Completed steps
+                                        if sop_engine.report_logs:
+                                            st.markdown("---")
+                                            st.markdown("**✅ Completed:**")
+                                            for log in sop_engine.report_logs:
+                                                st.success(f"{log['step_id']}: {log.get('duration', 0):.1f}s")
+                                    
+                                    # Draw frame with detections (clean video without overlay text)
+                                    display_frame = frame.copy()
+                                    
+                                    # Draw pinch points for hands (red dot - interaction point)
+                                    for hand in detected_hands:
+                                        # Draw pinch point (between thumb and index)
+                                        thumb_tip = hand.get('thumb_tip')
+                                        index_tip = hand.get('index_tip')
+                                        if thumb_tip and index_tip:
+                                            cx = (thumb_tip[0] + index_tip[0]) // 2
+                                            cy = (thumb_tip[1] + index_tip[1]) // 2
+                                            cv2.circle(display_frame, (cx, cy), 8, (0, 0, 255), -1)  # Red pinch point
+                                        
+                                        # Draw hand bbox
+                                        if 'bbox' in hand:
+                                            x1, y1, x2, y2 = hand['bbox']
+                                            cv2.rectangle(display_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                                    
+                                    # Draw object detections
+                                    for obj in detected_objects:
+                                        if 'bbox' in obj:
+                                            x1, y1, x2, y2 = obj['bbox']
+                                            # Highlight if this is the target object
+                                            is_target = obj['label'] == current_target_label
+                                            is_active = any(i['item_label'] == obj['label'] for i in interactions)
+                                            color = (0, 255, 255) if is_target else (255, 165, 0)  # Yellow for target, orange for others
+                                            thickness = 4 if is_active else 2
+                                            cv2.rectangle(display_frame, (x1, y1), (x2, y2), color, thickness)
+                                            cv2.putText(display_frame, obj['label'], (x1, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+                                    
+                                    video_frame.image(
+                                        cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB),
+                                        caption=f"Frame {frame_count}",
+                                        use_container_width=True
+                                    )
+                                
+                                # Check if completed
+                                if sop_status.get('is_completed', False):
+                                    break
+                            
+                            # Get final result
+                            st.session_state.assessment_result = sop_engine.get_report()
+                            st.session_state.assessment_running = False
+                            add_event("sop", f"Assessment completed: {'PASSED' if sop_engine.is_completed else 'INCOMPLETE'}")
+                            st.rerun()
+                            
+                        except Exception as e:
+                            st.error(f"Assessment error: {str(e)}")
+                            st.session_state.assessment_running = False
+                    
+                    # Display results
+                    if st.session_state.assessment_result:
+                        st.markdown("---")
+                        st.markdown("#### 📊 Assessment Results")
+                        
+                        result = st.session_state.assessment_result
+                        
+                        # Summary metrics
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            score = (result['completed_steps'] / result['total_steps'] * 100) if result['total_steps'] > 0 else 0
+                            st.metric("Score", f"{score:.0f}%")
+                        with col2:
+                            st.metric("Steps Completed", f"{result['completed_steps']}/{result['total_steps']}")
+                        with col3:
+                            status_emoji = "✅" if result['is_passed'] else "❌"
+                            st.metric("Status", f"{status_emoji} {'PASSED' if result['is_passed'] else 'FAILED'}")
+                        
+                        # Duration
+                        if result.get('total_duration'):
+                            st.info(f"⏱️ Total Time: {result['total_duration']:.1f} seconds")
+                        
+                        # Step details
+                        if result.get('step_details'):
+                            with st.expander("📋 Step Details", expanded=True):
+                                for step in result['step_details']:
+                                    col_step, col_dur, col_status = st.columns([3, 1, 1])
+                                    with col_step:
+                                        st.markdown(f"**{step['step_id']}**: {step.get('description', 'N/A')}")
+                                    with col_dur:
+                                        st.caption(f"{step.get('duration', 0):.1f}s")
+                                    with col_status:
+                                        st.markdown("✅" if step['status'] == 'PASSED' else "❌")
+                        
+                        # Save results
+                        col_save, col_reset = st.columns(2)
+                        with col_save:
+                            if st.button("💾 Save Report", use_container_width=True, key="save_sop_report"):
+                                try:
+                                    report_path = Path("uploads/reports")
+                                    report_path.mkdir(parents=True, exist_ok=True)
+                                    filename = f"report_{result['session_id']}.json"
+                                    filepath = report_path / filename
+                                    with open(filepath, 'w', encoding='utf-8') as f:
+                                        json.dump(result, f, indent=2, ensure_ascii=False)
+                                    st.success(f"✅ Report saved: {filename}")
+                                    add_event("sop", f"Report saved: {filename}")
+                                    
+                                    # Also offer download
+                                    report_json = json.dumps(result, indent=2, ensure_ascii=False)
+                                    st.download_button(
+                                        label="📥 Download Report",
+                                        data=report_json,
+                                        file_name=filename,
+                                        mime="application/json",
+                                        key="download_sop_report"
+                                    )
+                                except Exception as e:
+                                    st.error(f"Failed to save: {e}")
+                                    add_event("sop", f"Save failed: {e}")
+                        
+                        with col_reset:
+                            if st.button("🔄 New Assessment", use_container_width=True):
+                                st.session_state.assessment_result = None
+                                st.session_state.assessment_video_path = None
+                                st.rerun()
 
     # Activity log at the bottom
     st.markdown("---")
