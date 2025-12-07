@@ -38,6 +38,7 @@ backend/uploads/
 .pytest_cache/
 .coverage
 htmlcov/
+backend/notebooks/
 
 # Build
 *.egg-info/
