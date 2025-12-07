@@ -9,7 +9,7 @@ services:
     ports:
       - "5433:5432"
     volumes:
-      - ./data/pgdata:/var/lib/postgresql/data
+      - denso_pgdata:/var/lib/postgresql/data  # Named volume - managed by Docker
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
@@ -19,7 +19,7 @@ services:
 
   backend:
     build:
-      context: .
+      context: ./backend
       dockerfile: Dockerfile
     container_name: denso_backend
     environment:
@@ -28,11 +28,12 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_HOST: db
       POSTGRES_PORT: 5432
-      API_KEY: ${API_KEY}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
     ports:
       - "8501:8501"
     volumes:
-      - ./uploads:/app/uploads
+      - denso_uploads:/app/uploads  # Named volume for uploads
+      - ./backend:/app  # Mount source for development (optional - remove in production)
     depends_on:
       db:
         condition: service_healthy
@@ -50,5 +51,9 @@ services:
   #   depends_on:
   #     - db
 
+# Named volumes - Docker manages storage location
 volumes:
-  pgdata:
+  denso_pgdata:
+    name: denso_pgdata
+  denso_uploads:
+    name: denso_uploads

@@ -23,29 +23,32 @@ An AI-powered training and assessment platform for factory workers, featuring RA
 ## 📁 Project Structure
 
 ```
-backend/
-├── main.py                 # Streamlit application entry point
-├── app/
-│   ├── core/
-│   │   ├── config.py       # Application settings
-│   │   └── database.py     # Database connection setup
-│   ├── models/
-│   │   ├── user.py         # User model
-│   │   ├── document.py     # Document model
-│   │   ├── chunk.py        # Document chunk model with embeddings
-│   │   └── session.py      # Theory/Practical session models
-│   └── services/
-│       └── rag/
-│           ├── chat.py     # RAG chat, quiz, flashcard services
-│           ├── ingestion.py # Document processing pipeline
-│           ├── loaders.py  # PDF document loaders
-│           ├── splitters.py # Text chunking
-│           ├── vectorizer.py # Embedding generation
-│           └── utils.py    # Prompt templates
-├── alembic/                # Database migrations
-├── docker-compose.yml      # Docker services configuration
-├── Dockerfile              # Application container
-└── requirements-A.txt      # Python dependencies
+DensoMind/
+├── docker-compose.yml      # Docker services configuration (root level)
+├── .env.example            # Environment variables template
+├── README.md               # This file
+└── backend/
+    ├── main.py             # Streamlit application entry point
+    ├── Dockerfile          # Application container
+    ├── requirements-A.txt  # Python dependencies
+    ├── app/
+    │   ├── core/
+    │   │   ├── config.py   # Application settings
+    │   │   └── database.py # Database connection setup
+    │   ├── models/
+    │   │   ├── user.py     # User model
+    │   │   ├── document.py # Document model
+    │   │   ├── chunk.py    # Document chunk model with embeddings
+    │   │   └── session.py  # Theory/Practical session models
+    │   └── services/
+    │       └── rag/
+    │           ├── chat.py     # RAG chat, quiz, flashcard services
+    │           ├── ingestion.py # Document processing pipeline
+    │           ├── loaders.py  # PDF document loaders
+    │           ├── splitters.py # Text chunking
+    │           ├── vectorizer.py # Embedding generation
+    │           └── utils.py    # Prompt templates
+    └── alembic/            # Database migrations
 ```
 
 ## 🚀 Quick Start
@@ -59,7 +62,7 @@ backend/
 
 1. **Clone and setup environment**
    ```bash
-   cd backend
+   # From project root
    cp .env.example .env
    ```
 
@@ -73,7 +76,7 @@ backend/
    API_KEY=your_google_gemini_api_key
    ```
 
-3. **Build and run**
+3. **Build and run** (from project root)
    ```bash
    docker-compose up --build -d
    ```
@@ -83,13 +86,14 @@ backend/
 
 ### Option 2: Local Development
 
-1. **Start PostgreSQL with pgvector**
+1. **Start PostgreSQL with pgvector** (from project root)
    ```bash
    docker-compose up db -d
    ```
 
 2. **Create virtual environment**
    ```bash
+   cd backend
    python -m venv .venv
    .venv\Scripts\activate  # Windows
    # or
@@ -188,7 +192,7 @@ backend/
 ## 🐳 Docker Commands
 
 ```bash
-# Start all services
+# Start all services (from project root)
 docker-compose up -d
 
 # View logs
@@ -202,6 +206,12 @@ docker-compose up --build -d
 
 # Access database
 docker-compose exec db psql -U denso_user -d denso_mind
+
+# View Docker volumes
+docker volume ls | grep denso
+
+# Backup database
+docker-compose exec db pg_dump -U denso_user denso_mind > backup.sql
 ```
 
 ## 🤝 Contributing

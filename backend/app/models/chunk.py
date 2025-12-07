@@ -19,3 +19,6 @@ class DocumentChunk(Base):
     embedding = mapped_column(Vector(768)) # Vector embedding từ Google Gemini
 
     document = relationship("Document", back_populates="chunks")
+    
+    # Learning progress tracking
+    interactions = relationship("ChunkInteraction", back_populates="chunk", cascade="all, delete-orphan")

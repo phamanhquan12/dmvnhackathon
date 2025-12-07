@@ -13,3 +13,11 @@ class User(Base):
     # Quan hệ ngược để dễ truy vấn (VD: user.theory_sessions)
     theory_sessions = relationship("TheorySession", back_populates="user", cascade="all, delete-orphan")
     practical_sessions = relationship("PracticalSession", back_populates="user", cascade="all, delete-orphan")
+    
+    # Learning progress tracking (old system)
+    chunk_interactions = relationship("ChunkInteraction", back_populates="user", cascade="all, delete-orphan")
+    document_progress = relationship("DocumentProgress", back_populates="user", cascade="all, delete-orphan")
+    
+    # New pre-generated content progress tracking
+    flashcard_progress = relationship("UserFlashcardProgress", back_populates="user", cascade="all, delete-orphan")
+    quiz_attempts = relationship("UserQuizAttempt", back_populates="user", cascade="all, delete-orphan")

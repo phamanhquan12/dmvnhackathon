@@ -2,9 +2,21 @@ import os
 from pydantic_settings import BaseSettings
 from dotenv import load_dotenv
 from pathlib import Path
-load_dotenv()
-env_path = Path(__file__).resolve().parent.parent.parent / ".env"
-load_dotenv(dotenv_path=env_path)
+
+# Try multiple .env locations (Docker vs local development)
+# In Docker: env vars are passed directly by docker-compose
+# Local dev: .env is at project root (one level above backend)
+backend_env = Path(__file__).resolve().parent.parent.parent / ".env"  # backend/.env
+root_env = Path(__file__).resolve().parent.parent.parent.parent / ".env"  # root/.env
+
+# Load from root first (new structure), fallback to backend (old structure)
+if root_env.exists():
+    load_dotenv(dotenv_path=root_env)
+elif backend_env.exists():
+    load_dotenv(dotenv_path=backend_env)
+else:
+    load_dotenv()  # Try default locations
+
 class Settings(BaseSettings):
     PROJECT_NAME: str = "Denso Mind Backend"
     BACKEND_CORS_ORIGINS: list = ["*"]
@@ -24,3 +36,5 @@ class Settings(BaseSettings):
         return f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
     
 settings = Settings()
+
+print(root_env)
